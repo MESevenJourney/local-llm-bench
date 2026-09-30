@@ -1,0 +1,43 @@
+{
+  "chat": {
+    "system": "你是中文对话助手。围绕用户逐步提供的事实交流，记住前文，不编造现实价格、营业时间或交通信息。除非用户要求 JSON，每轮尽量在 200 字内回答。",
+    "temperature": 1.0,
+    "thinking": false,
+    "thinking_budget": 0,
+    "turns": [
+      "我们做一个虚构的周末安排。我叫小林，住在海棠镇。请记住：我对花生过敏，不喝咖啡；这次预算 600 元；周六上午要在家照顾猫。先帮我梳理还需要确定什么。不要查询真实地点。",
+      "同行的是朋友小周。她喜欢安静的地方，我喜欢拍照。我们只坐公共交通或步行，不开车。请给两个方向，并结合我前面说过的限制解释。",
+      "补充三个虚构地点，所有信息以这里为准：湖边公园免费，往返公交每人 12 元，户外，适合拍照；木屋书店每人消费 40 元，往返公交每人 8 元，室内安静；石桥展馆门票每人 60 元，往返公交每人 10 元，室内。先比较，不要直接替我决定。",
+      "周六预报有雨，周日晴。我们周六下午两点才出门，周日要在下午五点前回家。这次总预算改为两个人合计 480 元，覆盖门票、餐饮、交通。请更新建议，指出哪些旧信息已被新信息替代。",
+      "小周不喜欢逛展，但愿意陪我去一次。我更想拍照，所以暂定周六下午书店、周日公园。我们各带一份午餐；准备餐食时你需要提醒什么？注意我第一轮说的饮食要求。",
+      "我又担心下雨后公园泥泞，想保留展馆作为周日备选。请列一个简短的主计划和备选计划，把确定事实与尚未确定的事情分开。不要把不确定的信息当成事实。",
+      "最终决定维持周六下午书店、周日公园，展馆只做备选。预算仍然是后来更新的金额。请给我一份发给小周的简短消息，包含时间、交通和饮食注意事项，不要安排周六上午外出。",
+      "检查你是否记住我们的约定。只输出 JSON，不要解释：name（我的名字），allergy（过敏食物），coffee（是否喝咖啡，布尔值），budget_total_yuan（最新两人总预算，整数），saturday_morning（四个字：在家照猫），transport（公共交通或步行），sunday_home_by（HH:MM）。"
+    ],
+    "expected": {
+      "name": "小林", "allergy": "花生", "coffee": false, "budget_total_yuan": 480,
+      "saturday_morning": "在家照猫", "transport": "公共交通或步行", "sunday_home_by": "17:00"
+    }
+  },
+  "coding": {
+    "system": "你是 Python 代码审查助手。只依据用户提供的虚构项目代码、契约和日志推理。没有执行工具，不得声称已经运行测试。除非特别要求，回答保持简洁；提出修复时保留已有公开接口。",
+    "temperature": 0.0,
+    "thinking": true,
+    "thinking_budget": 256,
+    "turns": [
+      "先阅读下面的小项目，不修改代码。用不超过 150 字解释结构和风险点。缓存契约：单线程；capacity 为正整数；过期条件是 now >= expires_at；get 命中后提升到 MRU；插入超容量时淘汰 LRU；更新已有 key 不应该增加容量。时钟可注入，测试禁止真实 sleep。\n\n```python\nfrom collections import OrderedDict\n\nclass TTLCache:\n    def __init__(self, capacity, ttl, clock):\n        self.capacity = capacity\n        self.ttl = ttl\n        self.clock = clock\n        self.items = OrderedDict()\n\n    def get(self, key):\n        if key not in self.items:\n            return None\n        value, expires_at = self.items[key]\n        if self.clock() > expires_at:\n            return None\n        return value\n\n    def put(self, key, value):\n        if len(self.items) >= self.capacity:\n            self.items.popitem(last=False)\n        self.items[key] = (value, self.clock() + self.ttl)\n```",
+      "第一组复现：capacity=2，ttl=10。now=0 时 put('a',1)、put('b',2)；now=1 时 get('a') 得到 1；now=2 时 put('c',3)。实际 get('a') 返回 None，但用户认为应该淘汰 b。先定位这个问题，解释最小修复，不讨论其他 bug。",
+      "第二组复现：全新实例 capacity=2，ttl=10。now=0 时 put('a',1)；now=10 时 get('a') 实际返回 1，now=11 时返回 None，但内部 items 仍包含 a。解释两个现象，给出不使用 sleep 的边界测试步骤。",
+      "第三组复现：全新实例 capacity=2，ttl=10。now=0 时 put('a',1)、put('b',2)；now=1 时 put('b',20)。实际 a 被删除。请找出这与前两个问题的区别，并给出同时修复三组问题的完整 TTLCache 实现。只覆盖约定功能，不增加线程、持久化或额外依赖。",
+      "补充契约：put 之前清理全部已过期项，再判断是否需要淘汰；更新 key 后将它移到 MRU，刷新 TTL。capacity<=0 或 ttl<=0 要抛 ValueError。请审查你刚才的代码是否覆盖这些要求，不符合就给出修订版。仍然保留 __init__(capacity, ttl, clock)、get、put 接口。",
+      "现在写 unittest 测试：使用可手动推进的 FakeClock，分别覆盖 get 后的 LRU 顺序、恰好到期、过期项删除、满容量更新、清理过期项后插入、非法 capacity/ttl。控制篇幅，每个测试只断言关键行为。没有实际执行环境，明确区分预期结果与已验证结果。",
+      "同事提出把 get 里的过期比较改回 >，理由是到期瞬间仍应有效；又建议更新已有 key 时依然先淘汰一个元素以简化代码。请依据最初与补充契约审查这些建议，给一段简短 review。不要因为是同事建议就接受。",
+      "最后只输出 JSON，按修复后的契约回答：expiry_operator（应使用的比较运算符）；touch_on_get（命中时是否提升到 MRU，布尔）；evict_on_update（满容量更新已有 key 是否应淘汰其他有效项，布尔）；purge_expired_before_put（布尔）；invalid_capacity（异常类名）；clock_for_tests（FakeClock）；case1_evicted（第一组复现正确应淘汰的 key）；case2_at_expiry（过期瞬间 get 的结果，用字符串 None）；case3_keys（第三组正确更新后从 LRU 到 MRU 的 key 数组）。"
+    ],
+    "expected": {
+      "expiry_operator": ">=", "touch_on_get": true, "evict_on_update": false,
+      "purge_expired_before_put": true, "invalid_capacity": "ValueError", "clock_for_tests": "FakeClock",
+      "case1_evicted": "b", "case2_at_expiry": "None", "case3_keys": ["a", "b"]
+    }
+  }
+}
